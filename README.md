@@ -6,4 +6,4 @@
 
 ## Свои ЛОГИ 👤
 
-Если вам не нужны данные файлы, и вы ходите сами вручную создать их тогда вам [сюда...](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md)
+Если вам не нужны данные файлы, и вы ходите сами вручную создать их, тогда вам [сюда...](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md)
