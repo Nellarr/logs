@@ -1,0 +1,80 @@
+#!/bin/bash
+set -e
+
+# === МЕНЯЕШЬ ТОЛЬКО ЭТИ 2 IP ===
+# Сюда ставь IP роутеров, на которых уже проброшен порт 8080:
+# HQ-RTR: 8080 -> HQ-SRV:8080
+# BR-RTR: 8080 -> BR-SRV/testapp:8080
+
+HQ_RTR_IP="192.168.100.2"
+BR_RTR_IP="192.168.200.2"
+
+WEB_DOMAIN="web.au-team.irpo"
+DOCKER_DOMAIN="docker.au-team.irpo"
+
+AUTH_USER="WEBc"
+AUTH_PASS='P@ssw0rd'
+HTPASSWD_FILE="/etc/nginx/.htpasswd"
+
+echo "[1/6] Установка nginx и htpasswd..."
+apt-get update
+apt-get install -y nginx apache2-htpasswd
+
+echo "[2/6] Создание htpasswd для web-auth..."
+htpasswd -bc "$HTPASSWD_FILE" "$AUTH_USER" "$AUTH_PASS"
+chmod 640 "$HTPASSWD_FILE"
+chown root:nginx "$HTPASSWD_FILE" 2>/dev/null || chown root:root "$HTPASSWD_FILE"
+
+echo "[3/6] Создание конфига nginx..."
+cat > /etc/nginx/sites-available.d/au-team-proxy.conf <<EOF
+server {
+    listen 80;
+    server_name ${WEB_DOMAIN};
+
+    auth_basic "Restricted area";
+    auth_basic_user_file ${HTPASSWD_FILE};
+
+    location / {
+        proxy_pass http://${HQ_RTR_IP}:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    access_log /var/log/nginx/${WEB_DOMAIN}-access.log;
+    error_log  /var/log/nginx/${WEB_DOMAIN}-error.log;
+}
+
+server {
+    listen 80;
+    server_name ${DOCKER_DOMAIN};
+
+    location / {
+        proxy_pass http://${BR_RTR_IP}:8080;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+
+    access_log /var/log/nginx/${DOCKER_DOMAIN}-access.log;
+    error_log  /var/log/nginx/${DOCKER_DOMAIN}-error.log;
+}
+EOF
+
+echo "[4/6] Включение сайта..."
+mkdir -p /etc/nginx/sites-enabled.d
+ln -sf /etc/nginx/sites-available.d/au-team-proxy.conf /etc/nginx/sites-enabled.d/au-team-proxy.conf
+
+echo "[5/6] Проверка конфига nginx..."
+nginx -t
+
+echo "[6/6] Запуск nginx..."
+systemctl enable --now nginx
+systemctl restart nginx
+
+echo "Готово."
+echo "Проверка:"
+echo "curl -I http://${WEB_DOMAIN}"
+echo "curl -I http://${DOCKER_DOMAIN}"
