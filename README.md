@@ -8,9 +8,12 @@
 
 ## Свои логи 👤
 
-Если вам не нужны данные файлы, и вы ходите сами вручную создать их, тогда вам [сюда...](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md)
+Если вам не нужны данные файлы, и вы ходите сами вручную создать их, тогда вам сюда:
 
 
+[сысылка 1](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md)
+[сысылка 2](https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md)
+[сысылка 3]([https://github.com/meowehh/DemoExam_2026/blob/main/Module_1.md](https://storage14.eljur.ru/storage/5a978a7fadf86642e3545f630b43dc35?filename=%D0%9E%D0%B1%D1%80%D0%B0%D0%B7%D0%B5%D1%86+%D0%B7%D0%B0%D0%B4%D0%B0%D0%BD%D0%B8%D1%8F+%D0%B4%D0%BB%D1%8F+%D0%93%D0%98%D0%90+%D0%94%D0%AD+%D0%9F%D0%A3+%28%D0%B8%D0%BD%D0%B2%D0%B0%D1%80%D0%B8%D0%B0%D0%BD%D1%82%D0%BD%D0%B0%D1%8F+%D1%87%D0%B0%D1%81%D1%82%D1%8C%29.pdf&domain=kmpo))
 
 ## Доп помощь 🚑:
 
