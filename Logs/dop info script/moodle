@@ -1,0 +1,66 @@
+Настройка сервиса Moodle
+Подробное описание пункта задания:
+• Используйте веб-сервер apache.
+• В качестве системы управления базами данных используйте mariadb.
+• Создайте базу данных moodledb.
+• Создайте пользователя moodle с паролем P@ssw0rd и предоставьте 
+ему права доступа к этой базе данных.
+• У пользователя admin в системе обучения задайте пароль P@ssw0rd.
+• На главной странице должен отражаться номер рабочего места в виде 
+арабской цифры, других подписей делать не надо.
+• Основные параметры отметьте в отчете.
+Где выполнять?
+На машинах: HQ-SRV, HQ-CLI.
+Как делать?
+Установка необходимых пакетов выполняется при помощи команды:
+apt-get install –y apache2 php8.2 apache2-mods apache2-mod_
+php8.2 php8.2-libs mariadb-server php8.2-opcache php8.2-curl 
+php8.2-gd 
+php8.2-intl 
+php8.2-mysqlnd-mysqli 
+php8.2-xmlrpc 
+php8.2-zip php8.2-soap php8.2-mbstring php8.2-xmlreader php8.2
+fileinfo php8.2-sodium
+Включение и добавление в автозагрузку служб httpd2 и mysql:
+systemctl enable --now httpd2 mariadb
+Зайти в консоль mariadb:
+mariadb -u root
+Создать базу данных:
+create database moodle;
+Создать пользователя с паролем:
+create user moodle identified by ‘P@ssw0rd’;
+Предоставить максимальные привилегии пользователю к базе данных:
+grant all privileges on moodle.* to moodle;
+ush privileges;
+Выйти из консоли mariadb:
+exit;
+Скачиваем moodle, распаковываем и перемещаем в директорию /var/ 
+www/html/:
+wget 
+https://download.moodle.org/download.php/direct/stable405/
+moodle-latest-405.tgz
+tar -xf moodle-latest-405.tgz
+mv moodle /var/www/html/
+Создание каталога moodledata с изменением владельца на каталогах html 
+и moodledata:
+mkdir /var/www/moodledata
+chown -R apache2:apache2 /var/www/html
+Удаляем стандартную страницу apache:
+rm /var/www/html/index.html
+В конфигурационном файле /etc/httpd2/conf/sites-available/default.conf до
+бавляем каталог moodle в секции DocumentRoot:
+В 
+файле /etc/php/8.2/apache2-mod_php/php.ini переменную max_
+input_vars выставляем равной 5000:
+Перезапуск службы httpd2:
+systemctl restart httpd2 
+С клиента HQ-CLI в браузере зайдите на страницу http://<IP-АДРЕС_HQ
+SRV>/install.php и начните установку moodle в графическом режиме, за
+полнив параметры из предыдущих шагов:
+При установке также инсталлятор попросит выставить параметр $CFG
+>dbtype=’mariadb’; вместо ‘mysql’ в файле /var/www/html/moodle/config.
+php:
+После всех манипуляций сервер moodle установлен, осталось только сде
+лать настройку стартовой страницы с номером рабочего места участника ДЭ.
+Задайте полное название сайта, в кратком названии сайта укажите но
+мер вашего рабочего места.
