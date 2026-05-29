@@ -1,22 +1,9 @@
-apt-get update
 apt-get install git
 
 Потом:
 
 git clone https://github.com/USER/REPO.git
 
-Зайдёшь в папку:
+Права: chmod +x "Имя Файла"
 
-cd REPO
-
-И копируешь нужную папку с конфигами, например:
-
-cp -r configs /etc/myapp/
-
-Если надо заменить старую папку, сначала сделай бэкап:
-
-cp -r /etc/myapp/configs /etc/myapp/configs.bak
-
-Потом копируй:
-
-cp -r configs /etc/myapp/
+Запуск: ./"Имя Файла"
