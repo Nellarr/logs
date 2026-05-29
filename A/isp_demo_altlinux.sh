@@ -21,7 +21,7 @@ HQ_NET="172.16.1.0/28"
 HQ_ISP_IP="172.16.1.1/28"
 BR_NET="172.16.2.0/28"
 BR_ISP_IP="172.16.2.1/28"
-TIMEZONE="Asia/Novosibirsk"
+TIMEZONE="Europe/Moscow"
 
 need_root() {
   if [ "${EUID}" -ne 0 ]; then
