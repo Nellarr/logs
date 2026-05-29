@@ -1,0 +1,28 @@
+zone "au-team.irpo" {
+        type master;
+        file "au-team.irpo";
+};
+
+zone "100.168.192.in-addr.arpa" {
+        type master;
+        file "100.168.192.in-addr.arpa";
+};
+
+
+$TTL  1D
+@     IN    SOA   au-team.irpo.  root.au-team.irpo  (
+                          2025020600  ;       serial
+                          12H         ;       refresh
+                          1H          ;       retry
+                          1W          ;       expire
+                          1H          ;       ncache 
+                  )
+              IN    NS    au-team.irpo.
+              IN    A     192.168.100.1  
+hq-rtr        IN    A     192.168.100.62
+hq-rtr        IN    A     192.168.100.78
+hq-rtr        IN    A     192.168.100.86
+hq-srv        IN    A     192.168.100.1
+hq-cli        IN    A     192.168.100.65
+moodle        IN    CNAME hq-rtr.au-team.irpo.
+wiki          IN    CNAME hq-rtr.au-team.irpo.
