@@ -1,0 +1,28 @@
+apt-get install –y docker-engine docker-compose
+systemctl enable --now docker.service
+
+services:
+  mariadb:
+    image: mariadb:latest
+    environment:
+      — MYSQL_ROOT_PASSWORD=toor
+      — MYSQL_DATABASE=mediawiki
+      — MYSQL_USER=wiki
+      — MYSQL_PASSWORD=WikiP@ssw0rd
+  mediawiki:
+    image: mediawiki:latest
+    ports:
+      — «8080:80»
+    environment:
+      — MEDIAWIKI_DB_TYPE=mysql
+      — MEDIAWIKI_DB_HOST=mariadb
+      — MEDIAWIKI_DB_USER=wiki
+      — MEDIAWIKI_DB_PASSWORD=WikiP@ssw0rd
+      — MEDIAWIKI_DB_NAME=mediawiki
+# volumes: [/root/mediawiki/LocalSettings.php:/var/www/html/
+LocalSettings.php]
+volumes:
+  mediawiki_data:
+  mariadb_data:
+
+docker compose –f /root/wiki.yml up -d
