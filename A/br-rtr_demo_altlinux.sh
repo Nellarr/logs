@@ -13,8 +13,8 @@ set -euo pipefail
 # WAN_IF — интерфейс в сторону ISP
 # LAN_IF — интерфейс в сторону BR-SRV / BR-SW
 
-WAN_IF="enp0s3"
-LAN_IF="enp0s8"
+WAN_IF="enp0s8"
+LAN_IF="enp0s9"
 
 WAN_IP="172.16.2.2/28"
 WAN_GW="172.16.2.1"
@@ -22,7 +22,7 @@ WAN_GW="172.16.2.1"
 BR_LAN_IP="192.168.30.1/27"
 BR_LAN_NET="192.168.30.0/27"
 
-TIMEZONE="Asia/Novosibirsk"
+TIMEZONE="Europe/Moscow"
 NET_ADMIN_PASS='P@$$word'
 
 GRE_IF="gre1"
