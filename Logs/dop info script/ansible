@@ -1,23 +1,32 @@
 Настройка ansible
+
 Подробное описание пункта задания:
+
 • Сформируйте файл инвентаря, в инвентарь должны входить HQ-SRV, 
 HQ-CLI.
 • Рабочий каталог ansible должен располагаться в /etc/ansible.
 • Все указанные машины должны без предупреждений и ошибок отве
+
 чать pong на команду ping в ansible, посланную с BR-SRV.
+
 Где выполнять?
 На машине: BR-SRV.
+
 Как делать?
 Необходимо установить пакет ansible и sshpass, выполнить это можно 
+
 следующей командой:
 apt-get update && apt-get install –y ansible sshpass
 Приведем файл инвентаря Ansible к следующему виду, отредактировав 
 конфигурационный файл по пути /etc/ansible/hosts любым удобным тек
+
 стовым редактором, например vim или nano:
 hq-srv ansible_port=2024 ansible_ssh_user=sshuser ansible_ssh_pass=P@ssw0rd
 hq-cli ansible_ssh_user=user ansible_ssh_pass=resu
 Редактируем файл /etc/ansible/ansible.cfg, приводя его к следующе
+
 му виду (для того, чтобы ansible не писал ошибки интерпретатора python3):
+
 [defaults]
 inventory = /etc/ansible/hosts
 host_key_checking = False
