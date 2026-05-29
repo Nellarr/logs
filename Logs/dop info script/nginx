@@ -1,0 +1,48 @@
+Настройка веб-сервера nginx как обратного прокси-сервера
+Подробное описание пункта задания:
+При обращении к HQ-RTR по доменному имени moodle.au-team.irpo кли
+ента должно перенаправлять на HQ-SRV, на стандартный порт, на сервис 
+moodle.
+При обращении к HQ-RTR по доменному имени wiki. au-team.irpo клиен
+та должно перенаправлять на BR-SRV, на порт, на сервис mediwiki.
+Где выполнять?
+На машине: HQ-SRV.
+Как делать?
+Установить пакет nginx:
+apt-get install -y nginx
+Настроить nginx как реверсивный прокси-сервер, дописав в файл /etc/
+nginx/nginx.conf следующую информацию:
+http {
+    server {
+      listen 80;  # Слушаем на 80 порту для HTTP
+      server_name moodle.au-team.irpo;  # Указываем первое доменное имя
+      location / {
+        proxy_pass http://192.168.10.1:80;  # Перенаправление 
+на указанный адрес и порт
+        proxy_set_header Host $host;  # Пробрасываем заголовок Host
+        proxy_set_header X-Real-IP $remote_addr;  # Пробрасываем IP 
+клиента
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;   
+#Пробрасываем заголовок X-Forwarded-For
+        proxy_set_header X-Forwarded-Proto $scheme;  #Пробрасываем схему 
+запроса
+        }
+    }
+    server {
+        listen 80;  # Слушаем на 80 порту для HTTP
+        server_name wiki.au-team.irpo;  # Указываем второе доменное имя
+        location / {
+          proxy_pass http://192.168.5.1:8080;  # Перенаправление 
+на указанный адрес и порт
+           proxy_set_header Host $host;  # Пробрасываем заголовок Host
+            proxy_set_header X-Real-IP $remote_addr;  # Пробрасываем IP 
+клиента
+         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  
+#Пробрасываем заголовок X-Forwarded-For
+            proxy_set_header X-Forwarded-Proto $scheme;  # Пробрасываем 
+схему запроса
+        }
+    }
+}
+Запустить и активировать службу nginx:
+systemctl enable --now nginx
