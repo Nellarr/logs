@@ -1,27 +1,34 @@
 #!/bin/bash
-# Скрипт для настройки VLAN-коммутатора на базе ALT Linux (etcnet)
-# HQ-SW: бридж br0 с VLAN filtering
+# Полная автоматическая настройка VLAN-коммутатора на ALT Linux
+# HQ-SW: транк + access-порты + управляющий VLAN 999
 
-set -e  # остановка при ошибке
+set -e  # остановка при любой ошибке
 
-# --- Настройки (при необходимости измените имена интерфейсов) ---
-UPLINK="enp0s8"      # порт, смотрящий на HQ-RTR (trunk)
-ACCESS_VLAN100="enp0s9"
-ACCESS_VLAN200="enp0s10"
+# ================== НАСТРАИВАЕМЫЕ ПАРАМЕТРЫ ==================
+UPLINK="enp0s8"          # порт, смотрящий на HQ-RTR (trunk)
+ACCESS_VLAN100="enp0s9"  # порт для клиентов VLAN 100
+ACCESS_VLAN200="enp0s10" # порт для клиентов VLAN 200
+BRIDGE="br0"             # имя моста (bridge)
 VLAN100=100
 VLAN200=200
-BRIDGE="br0"
+VLAN_MGMT=999
+# IP-адрес самого коммутатора в сети управления (измените под свою сеть)
+MGMT_IP="10.0.999.2/24"
+# ============================================================
 
-echo "=== Настройка VLAN-коммутатора на HQ-SW ==="
+echo "=== Настройка VLAN-коммутатора HQ-SW ==="
+echo "Транк: $UPLINK, VLANы: $VLAN100, $VLAN200, $VLAN_MGMT"
+echo "Access: $ACCESS_VLAN100 → VLAN $VLAN100"
+echo "Access: $ACCESS_VLAN200 → VLAN $VLAN200"
+echo "Управление: VLAN $VLAN_MGMT с IP $MGMT_IP"
 
-# 1. Останавливаем сетевую службу, чтобы изменения применились чисто
+# 1. Останавливаем сеть для чистоты конфигурации
 systemctl stop network
 
-# 2. Создаём директории ifaces
-mkdir -p /etc/net/ifaces/{$UPLINK,$ACCESS_VLAN100,$ACCESS_VLAN200,$BRIDGE}
+# 2. Создаём директории интерфейсов
+mkdir -p /etc/net/ifaces/{$UPLINK,$ACCESS_VLAN100,$ACCESS_VLAN200,$BRIDGE,vlan$VLAN_MGMT}
 
-# 3. Настраиваем физические порты (они будут членами бриджа)
-# Для каждого порта пишем TYPE=eth, ONBOOT=yes и указываем BRIDGE
+# 3. Настройка физических портов (они будут членами бриджа)
 for iface in $UPLINK $ACCESS_VLAN100 $ACCESS_VLAN200; do
     cat > /etc/net/ifaces/$iface/options <<EOF
 TYPE=eth
@@ -30,7 +37,7 @@ BRIDGE=$BRIDGE
 EOF
 done
 
-# 4. Настраиваем бридж br0: включаем vlan_filtering, явно перечисляем порты (опционально)
+# 4. Настройка бриджа с включённой VLAN-фильтрацией
 cat > /etc/net/ifaces/$BRIDGE/options <<EOF
 TYPE=bridge
 ONBOOT=yes
@@ -38,54 +45,75 @@ BRIDGE_OPTS="vlan_filtering=1"
 BRIDGE_PORTS="$UPLINK $ACCESS_VLAN100 $ACCESS_VLAN200"
 EOF
 
-# 5. Создаём post-up скрипт для настройки VLAN-правил на бридже
+# 5. Создаём пост-ап скрипт для настройки VLAN-правил на бридже
 POSTUP_DIR="/etc/net/ifaces/$BRIDGE/up.d"
 mkdir -p $POSTUP_DIR
-cat > $POSTUP_DIR/50-vlan-config <<'EOF'
+cat > $POSTUP_DIR/50-vlan-config <<EOF
 #!/bin/bash
-# Этот скрипт выполняется после поднятия бриджа br0
-# Настраивает PVID для access-портов и разрешённые VLAN на транке
+# Настройка VLAN на бридже $BRIDGE
 
-UPLINK="enp0s8"
-ACCESS_VLAN100="enp0s9"
-ACCESS_VLAN200="enp0s10"
-VLAN100=100
-VLAN200=200
-BRIDGE="br0"
+UPLINK="$UPLINK"
+ACC100="$ACCESS_VLAN100"
+ACC200="$ACCESS_VLAN200"
+BR="$BRIDGE"
+V100=$VLAN100
+V200=$VLAN200
+VMGMT=$VLAN_MGMT
 
-# Ожидаем появления бриджа (максимум 5 секунд)
-for i in {1..10}; do
-    ip link show $BRIDGE >/dev/null 2>&1 && break
+# Ожидаем появления бриджа
+for i in \$(seq 1 10); do
+    ip link show \$BR >/dev/null 2>&1 && break
     sleep 0.5
 done
 
-# Удаляем стандартное разрешение VLAN 1 (необязательно, но повышает чистоту)
-bridge vlan del dev $BRIDGE vid 1 self 2>/dev/null || true
+# Необязательно: удаляем VLAN 1 с бриджа (для чистоты)
+bridge vlan del dev \$BR vid 1 self 2>/dev/null || true
 
-# Настраиваем access-порты: PVID + untagged
-bridge vlan add dev $ACCESS_VLAN100 vid $VLAN100 pvid untagged
-bridge vlan add dev $ACCESS_VLAN200 vid $VLAN200 pvid untagged
+# Access-порты: PVID + untagged
+bridge vlan add dev \$ACC100 vid \$V100 pvid untagged
+bridge vlan add dev \$ACC200 vid \$V200 pvid untagged
 
-# Настраиваем транк (uplink): разрешаем только нужные VLAN, без PVID
-bridge vlan add dev $UPLINK vid $VLAN100
-bridge vlan add dev $UPLINK vid $VLAN200
+# Транк (uplink): разрешаем нужные VLANы
+bridge vlan add dev \$UPLINK vid \$V100
+bridge vlan add dev \$UPLINK vid \$V200
+bridge vlan add dev \$UPLINK vid \$VMGMT
 
-# Убираем VLAN 1 с транка, если не нужен (осторожно – может отрезать управление!)
-bridge vlan del dev $UPLINK vid 1 2>/dev/null || true
+# Убираем VLAN 1 с транка (опционально)
+bridge vlan del dev \$UPLINK vid 1 2>/dev/null || true
 
-echo "VLAN-конфигурация на бридже $BRIDGE применена"
+# Также разрешаем management VLAN на самом бридже (для интерфейса vlan$VMGMT)
+bridge vlan add dev \$BR vid \$VMGMT self
+
+echo "VLAN-конфигурация на бридже \$BR применена"
 EOF
 
 chmod +x $POSTUP_DIR/50-vlan-config
 
-# 6. Запускаем сеть заново
+# 6. Настройка управляющего VLAN-интерфейса поверх бриджа
+cat > /etc/net/ifaces/vlan$VLAN_MGMT/options <<EOF
+TYPE=vlan
+HOST=$BRIDGE
+VID=$VLAN_MGMT
+ONBOOT=yes
+BOOTPROTO=static
+EOF
+
+echo "$MGMT_IP" > /etc/net/ifaces/vlan$VLAN_MGMT/ipv4address
+
+# 7. Запускаем сеть заново
 systemctl start network
 
-echo "=== Настройка завершена ==="
+echo "=========================================="
+echo "Настройка завершена успешно!"
 echo "Проверка состояния:"
 bridge vlan show
 echo ""
-echo "Если всё прошло успешно, порты настроены:"
-echo "  $UPLINK  – trunk (VLAN $VLAN100, $VLAN200)"
-echo "  $ACCESS_VLAN100 – access VLAN $VLAN100"
-echo "  $ACCESS_VLAN200 – access VLAN $VLAN200"
+echo "Управляющий интерфейс vlan$VLAN_MGMT:"
+ip addr show vlan$VLAN_MGMT
+echo "=========================================="
+echo "Теперь на HQ-RTR необходимо:"
+echo "  - создать VLAN-интерфейсы $VLAN100, $VLAN200, $VLAN_MGMT на порту,"
+echo "    соединённом с $UPLINK (на RTR это может быть другой интерфейс, например eth0)"
+echo "  - назначить им IP-адреса из соответствующих подсетей"
+echo "  - включить маршрутизацию (ip_forward) и, при необходимости, NAT"
+echo "=========================================="
