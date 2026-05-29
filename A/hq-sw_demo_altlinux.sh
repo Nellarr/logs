@@ -18,16 +18,16 @@ set -euo pipefail
 # SRV_IF — порт в сторону HQ-SRV, tagged VLAN 100 и 999
 # CLI_IF — порт в сторону HQ-CLI, tagged VLAN 200 и 999
 
-RTR_IF="enp0s3"
-SRV_IF="enp0s8"
-CLI_IF="enp0s9"
+RTR_IF="enp0s8"
+SRV_IF="enp0s9"
+CLI_IF="enp0s10"
 BRIDGE="br0"
 
 MGMT_VLAN="999"
 MGMT_IP="192.168.99.3/29"
 MGMT_GW="192.168.99.1"
 DNS_SERVER="192.168.10.2"
-TIMEZONE="Asia/Novosibirsk"
+TIMEZONE="Europe/Moscow"
 
 # Если тебе нужно сделать порт к серверу/клиенту НЕ tagged, а обычным access,
 # поменяй значения на "access".
