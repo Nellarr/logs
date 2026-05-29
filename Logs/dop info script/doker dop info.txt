@@ -1,0 +1,17 @@
+Если сайт не открылся, но контейнеры запущены, открой compose:
+
+mcedit /opt/testapp/docker-compose.yml
+
+И попробуй заменить:
+
+- "8080:80"
+
+на:
+
+- "8080:8080"
+
+Потом перезапусти:
+
+cd /opt/testapp
+docker compose down
+docker compose up -d
