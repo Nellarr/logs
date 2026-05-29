@@ -15,8 +15,8 @@ set -euo pipefail
 # WAN_IF — интерфейс в сторону ISP
 # LAN_IF — интерфейс trunk в сторону HQ-SW
 
-WAN_IF="enp0s3"
-LAN_IF="enp0s8
+WAN_IF="enp0s8"
+LAN_IF="enp0s9"
 
 WAN_IP="172.16.1.2/28"
 WAN_GW="172.16.1.1"
@@ -38,7 +38,7 @@ VLAN999_NET="192.168.99.0/29"
 BR_LAN_NET="192.168.30.0/27"
 DOMAIN="au-team.irpo"
 HQ_DNS="192.168.10.2"
-TIMEZONE="Asia/Novosibirsk"
+TIMEZONE="Europe/Moscow"
 NET_ADMIN_PASS='P@$$word'
 
 GRE_IF="gre1"
