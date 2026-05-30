@@ -1,0 +1,1223 @@
+МОДУЛЬ 2: СИСТЕМНОЕ АДМИНИСТРИРОВАНИЕ
+Демоэкзамен 2026
+
+Источник: GitHub Module_2.md
+Файл приведён к нормальному TXT-виду: разделы по порядку, команды отделены от пояснений.
+
+ВАЖНО:
+1. Перед выполнением сверяй IP-адреса со своей схемой.
+2. В командах ниже используются пароли из исходного решения: P@ssw0rd, toor, resu.
+3. Команды выполняй от root, если не указано другое.
+4. Если у тебя другие имена интерфейсов, сетей или пользователей — подставляй свои.
+
+============================================================
+ЗАДАНИЕ 1. SAMBA DC НА BR-SRV И ВВОД HQ-CLI В ДОМЕН
+============================================================
+
+Что нужно сделать:
+- Имя домена: au-team.irpo
+- Ввести HQ-CLI в домен.
+- Создать 5 пользователей для офиса HQ.
+- Создать группу hq и добавить туда пользователей.
+- Разрешить пользователям группы hq входить на HQ-CLI.
+- Разрешить группе hq через sudo только команды: cat, grep, id.
+- Запретить запуск других команд с повышенными правами.
+
+----------------------
+1.1. BR-SRV: DNS и пакеты
+----------------------
+
+Сначала указываем DNS, чтобы можно было ставить пакеты и чтобы Samba DC нормально работала.
+
+Открыть файл:
+
+    vim /etc/resolvconf.conf
+
+Добавить/проверить строки:
+
+    name_servers=127.0.0.1
+    name_servers=192.168.1.10
+
+Применить изменения:
+
+    resolvconf -u
+    systemctl restart network
+
+Установить пакеты:
+
+    apt-get update && apt-get install -y task-samba-dc alterator-fbi alterator-net-domain admx-* admc gpui
+
+Задать hostname:
+
+    vim /etc/sysconfig/network
+
+Пример содержимого:
+
+    HOSTNAME=br-srv.au-team.irpo
+
+Перезагрузить:
+
+    reboot
+
+После перезагрузки включить службы:
+
+    systemctl enable --now ahttpd alteratord
+
+Удалить старый конфиг Samba и подготовить каталог SYSVOL:
+
+    rm -rf /etc/samba/smb.conf /var/{lib.cache}/samba
+    mkdir -p /var/lib/samba/sysvol
+
+Развернуть домен Samba DC:
+
+    samba-tool domain provision --realm=au-team.irpo --domain=au-team --adminpass='P@ssw0rd' --dns-backend=BIND9_DLZ --server-role=dc --use-rfc2307
+
+----------------------
+1.2. HQ-CLI: установка пакетов
+----------------------
+
+На HQ-CLI установить нужные пакеты:
+
+    apt-get update && apt-get install -y admx-* admc gpui sudo gpupdate
+
+Через Console в Proxmox VE войти в графическую часть:
+
+    login: user
+    password: resu
+
+Открыть Firefox и перейти:
+
+    http://192.168.3.10:8080
+
+Данные для входа:
+
+    login: root
+    password: toor
+
+Дальше в веб-интерфейсе:
+
+    Configuration > Expert mode > Apply
+    Web Interface
+    Поменять порт 8080 на 8081
+    Apply
+    Restart http server
+
+После этого открыть:
+
+    http://192.168.3.10:8081
+
+Перейти во вкладку Domain и указать:
+
+    Тип: Active Directory Domain Controller
+    DNS Forwarders: 192.168.1.10
+    Domain: au-team.irpo
+    Password: P@ssw0rd
+    Apply
+
+Дождаться состояния OK.
+
+----------------------
+1.3. BR-SRV: проверка
+----------------------
+
+Перезагрузить систему и проверить:
+
+    ping ya.ru
+    ping br-srv.au-team.irpo
+    ping hq-rtr.au-team.irpo
+
+Если всё пингуется — идём дальше.
+
+----------------------
+1.4. HQ-CLI: настройка DNS и ввод в домен
+----------------------
+
+На HQ-CLI от root выполнить:
+
+    nmcli con modify DHCP-CLI \
+        ipv4.method auto \
+        ipv4.ignore-auto-dns yes \
+        ipv4.dns 192.168.3.10
+
+    nmcli con down DHCP-CLI
+    nmcli con up DHCP-CLI
+
+Открыть GUI, запустить терминал и выполнить:
+
+    acc
+
+В интерфейсе:
+
+    Пароль: toor
+    Раздел: Аутентификация / Auth
+    Выбрать: Домен Active Directory
+    Домен: au-team.irpo
+    Рабочая группа: au-team
+    Имя компьютера: hq-cli
+    Выбрать SSID, а не Winbind
+    Сохранить
+    Логин: Administrator
+    Пароль: P@ssw0rd
+    Включить групповые политики
+    Галочку напротив Kerberos НЕ ставить
+    Применить изменения
+
+Если вход в домен прошёл — всё нормально.
+
+----------------------
+1.5. BR-SRV: группа и пользователи
+----------------------
+
+Создать группу hq:
+
+    samba-tool group add hq
+
+По заданию пользователи должны быть формата hquser1, hquser2 и т.д.:
+
+    for i in $(seq 1 5); do samba-tool user add hquser$i 'P@ssw0rd'; done
+    for i in $(seq 1 5); do samba-tool group addmembers hq hquser$i; done
+
+Проверить группу и пользователей:
+
+    samba-tool group list
+    samba-tool group listmembers hq
+
+Установить административные шаблоны:
+
+    admx-msi-setup
+
+ПРИМЕЧАНИЕ:
+В исходном GitHub-решении пользователи создавались как user$i.hq.
+Если у тебя проверка ожидает именно hquser1-hquser5, лучше использовать вариант выше.
+
+----------------------
+1.6. HQ-CLI: sudo только для cat, grep, id
+----------------------
+
+Перезапустить HQ-CLI и войти как Administrator:
+
+    password: P@ssw0rd
+
+Открыть терминал:
+
+    su -
+    toor
+
+Выполнить:
+
+    admx-msi-setup
+    roleadd hq wheel
+    rolelst
+
+Проверить, что есть hq:wheel.
+
+Открыть sudoers:
+
+    mcedit /etc/sudoers
+
+Пример нужных строк:
+
+    User_Alias WHEEL_USERS = %wheel, %AU-TEAM\\hq
+    User_Alias XGRP_USERS = %xgrp
+    # User_Alias SUDO_USERS = %sudo
+
+    Cmnd_Alias SHELLCMD = /usr/bin/id, /bin/cat, /bin/grep
+
+    WHEEL_USERS ALL=(ALL:ALL) SHELLCMD
+
+Смысл:
+- группа hq входит в WHEEL_USERS;
+- SHELLCMD содержит только разрешённые команды;
+- WHEEL_USERS может запускать через sudo только SHELLCMD.
+
+Выйти из root:
+
+    exit
+
+Получить Kerberos-билет:
+
+    kinit
+    P@ssw0rd
+
+Запустить ADMC:
+
+    admc
+
+Настройка групповой политики:
+
+    Объекты групповой политики
+    au-team.irpo > правой кнопкой мыши
+    Создать политику и связать с этим подразделением
+    Название: sudoers
+    Поставить галочку "принудительно" напротив sudoers
+    Правой кнопкой по sudoers > изменить
+    Компьютер
+    Административные шаблоны
+    Samba
+    Настройки Unix
+    Управление разрешениями Sudo
+    Состояние политики: Включено
+    sudoers commands > Редактировать
+    Добавить:
+        /usr/bin/id
+        /bin/cat
+        /bin/grep
+    Применить и выйти из admc
+
+Применить политики:
+
+    gpupdate -f
+    gpupdate -f
+
+Проверка под пользователем hquser5:
+
+    sudo id
+    sudo cat /root/.bashrc
+    sudo cat /root/.bashrc | grep root
+
+Если эти команды работают, а другие через sudo нет — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 2 + 3. RAID0 И NFS НА HQ-SRV
+============================================================
+
+Что нужно сделать:
+- Из двух дополнительных дисков по 1 ГБ сделать RAID0.
+- Имя массива: /dev/md0.
+- Файловая система: ext4.
+- Автомонтирование в /raid.
+- Общая папка NFS: /raid/nfs.
+- Доступ на чтение/запись только для сети в сторону HQ-CLI.
+- На HQ-CLI настроить автомонтирование в /mnt/nfs.
+
+----------------------
+2.1. HQ-SRV: создание RAID0
+----------------------
+
+Проверить диски:
+
+    lsblk
+
+Создать RAID0 из дисков /dev/sdb и /dev/sdc:
+
+    mdadm -C /dev/md0 -l 0 -n 2 /dev/sd{b,c}
+
+Проверить:
+
+    lsblk
+
+Создать файловую систему ext4:
+
+    mkfs.ext4 /dev/md0
+
+Сохранить конфигурацию RAID:
+
+    echo DEVICE partitions >> /etc/mdadm.conf
+    mdadm --detail --scan >> /etc/mdadm.conf
+
+Создать точку монтирования:
+
+    mkdir /raid
+
+Открыть fstab:
+
+    mcedit /etc/fstab
+
+Добавить строку:
+
+    /dev/md0    /raid    ext4    defaults    0    0
+
+Применить и проверить:
+
+    mount -a
+    df -h
+    lsblk
+
+----------------------
+2.2. HQ-SRV: настройка NFS
+----------------------
+
+Установить NFS:
+
+    apt-get update && apt-get install -y nfs-{server,utils}
+
+Создать папку:
+
+    mkdir /raid/nfs
+    chmod 766 /raid/nfs
+
+Открыть exports:
+
+    mcedit /etc/exports
+
+Закомментировать первую строку, если она есть.
+Внизу добавить:
+
+    /raid/nfs 192.168.2.0/28(rw,no_subtree_check,no_root_squash)
+
+Применить:
+
+    exportfs -arv
+    systemctl enable --now nfs-server.service
+    systemctl restart nfs-server.service
+
+----------------------
+2.3. HQ-CLI: подключение NFS
+----------------------
+
+Установить NFS:
+
+    apt-get update && apt-get install -y nfs-{server,utils}
+
+Создать точку монтирования:
+
+    mkdir /mnt/nfs
+    chmod 777 /mnt/nfs
+
+Открыть fstab:
+
+    mcedit /etc/fstab
+
+Добавить:
+
+    192.168.1.10:/raid/nfs    /mnt/nfs    nfs    defaults    0    0
+
+Включить службы:
+
+    systemctl enable --now nfs-server.service
+    systemctl restart nfs-server.service
+
+Смонтировать и проверить:
+
+    mount -a
+    df -h
+
+В выводе должно быть примерно так:
+
+    192.168.1.10:/raid/nfs   2,0G   0   1,9G   0%   /mnt/nfs
+
+После настройки перезагрузить HQ-SRV и HQ-CLI, затем снова проверить:
+
+    df -h
+
+Если NFS после перезагрузки автоматически доступен в /mnt/nfs — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 4. CHRONY НА ISP
+============================================================
+
+Что нужно сделать:
+- На ISP настроить NTP-сервер.
+- Вышестоящий NTP-сервер выбрать самостоятельно.
+- Стратум сервера: 5.
+- Клиенты NTP: HQ-SRV, HQ-CLI, BR-RTR, BR-SRV.
+
+----------------------
+4.1. ISP: установка и настройка chrony
+----------------------
+
+Установить:
+
+    apt-get update && apt-get install -y chrony tzdata
+
+Открыть конфиг:
+
+    vim /etc/chrony.conf
+
+Пример содержимого:
+
+    initstepslew 10 ntp0.ntp-servers.net
+    pool 127.0.0.1 iburst prefer
+    hwtimestamp *
+    local stratum 5
+    allow 0/0
+
+Запустить службу и поставить часовой пояс:
+
+    systemctl restart chronyd
+    systemctl enable --now chronyd
+    timedatectl set-timezone Asia/Novosibirsk
+
+----------------------
+4.2. Клиенты: HQ-SRV, HQ-CLI, BR-RTR, BR-SRV
+----------------------
+
+На каждом клиенте выполнить одинаково:
+
+    apt-get update && apt-get install -y chrony tzdata
+
+Открыть конфиг:
+
+    vim /etc/chrony.conf
+
+Добавить/указать сервер ISP:
+
+    pool 172.16.1.1 iburst prefer
+
+Перезапустить:
+
+    systemctl restart chronyd
+    systemctl enable --now chronyd
+    timedatectl set-timezone Asia/Novosibirsk
+
+----------------------
+4.3. HQ-RTR
+----------------------
+
+Chrony на HQ-RTR по заданию не настраивается, но часовой пояс можно поставить:
+
+    timedatectl set-timezone Asia/Novosibirsk
+
+----------------------
+4.4. Проверка
+----------------------
+
+На ISP:
+
+    systemctl restart chronyd
+
+На HQ-SRV, HQ-CLI, BR-RTR, BR-SRV:
+
+    chronyc sources
+
+Пример нормального вывода:
+
+    MS Name/IP address         Stratum Poll Reach LastRx Last sample
+    ==============================================================================
+    ^* 172.16.1.1                    5   6    77    35   +859ns[  -23us] +/- 342us
+
+Если напротив ISP стоит ^* — клиент синхронизируется с ISP.
+
+============================================================
+ЗАДАНИЕ 5. ANSIBLE НА BR-SRV
+============================================================
+
+Что нужно сделать:
+- Рабочий каталог Ansible: /etc/ansible.
+- В inventory должны быть: HQ-SRV, HQ-CLI, HQ-RTR, BR-RTR.
+- Все машины должны отвечать pong на ansible ping с BR-SRV.
+
+----------------------
+5.1. BR-SRV: установка Ansible
+----------------------
+
+    apt-get update && apt-get install openssh-server ansible sshpass nano -y
+
+Открыть inventory:
+
+    nano /etc/ansible/hosts
+
+Содержимое:
+
+    [Alt]
+    hq-rtr.au-team.irpo ansible_ssh_user=net_admin ansible_ssh_pass=P@ssw0rd
+    hq-srv.au-team.irpo ansible_ssh_user=sshuser ansible_ssh_pass=P@ssw0rd
+    hq-cli.au-team.irpo ansible_ssh_user=sysadmin ansible_ssh_pass=P@ssw0rd
+    br-rtr.au-team.irpo ansible_ssh_user=net_admin ansible_ssh_pass=P@ssw0rd
+
+    [Alt:vars]
+    ansible_port=2026
+
+Открыть конфиг:
+
+    nano /etc/ansible/ansible.cfg
+
+Проверить/добавить:
+
+    [defaults]
+    interpreter_python = /usr/bin/python3
+    host_key_checking = False
+
+Пробная проверка:
+
+    ansible -m ping all
+
+Если часть машин уже отвечает pong — на них SSH можно не трогать.
+
+----------------------
+5.2. HQ-SRV: SSH
+----------------------
+
+    apt-get update && apt-get install openssh-server -y
+
+Открыть конфиг:
+
+    vim /etc/openssh/sshd_config
+
+Указать:
+
+    Port 2026
+    MaxAuthTries 2
+    AllowUsers sshuser
+
+Перезапустить SSH:
+
+    systemctl enable --now sshd
+    systemctl restart sshd
+
+----------------------
+5.3. HQ-RTR и BR-RTR: SSH
+----------------------
+
+    apt-get update && apt-get install openssh-server -y
+
+Открыть конфиг:
+
+    vim /etc/openssh/sshd_config
+
+Указать:
+
+    Port 2026
+    MaxAuthTries 2
+    AllowUsers net_admin
+
+Перезапустить:
+
+    systemctl enable --now sshd
+    systemctl restart sshd
+
+----------------------
+5.4. HQ-CLI: SSH
+----------------------
+
+    apt-get update && apt-get install openssh-server -y
+
+Создать пользователя sysadmin:
+
+    useradd sysadmin
+    passwd sysadmin
+    P@ssw0rd
+    usermod -a -G remote sysadmin
+
+Открыть конфиг:
+
+    vim /etc/openssh/sshd_config
+
+Указать:
+
+    Port 2026
+    MaxAuthTries 2
+    AllowGroups wheel remote
+
+Перезапустить:
+
+    systemctl enable --now sshd
+    systemctl restart sshd
+
+----------------------
+5.5. Финальная проверка на BR-SRV
+----------------------
+
+    ansible -m ping all
+
+Нормальный результат:
+
+    hq-srv.au-team.irpo | SUCCESS => {
+        "changed": false,
+        "ping": "pong"
+    }
+    br-rtr.au-team.irpo | SUCCESS => {
+        "changed": false,
+        "ping": "pong"
+    }
+    hq-rtr.au-team.irpo | SUCCESS => {
+        "changed": false,
+        "ping": "pong"
+    }
+    hq-cli.au-team.irpo | SUCCESS => {
+        "changed": false,
+        "ping": "pong"
+    }
+
+Если все четыре машины отвечают pong — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 6. WEB-ПРИЛОЖЕНИЕ В DOCKER НА BR-SRV
+============================================================
+
+Что нужно сделать:
+- Через Docker создать стек контейнеров с веб-приложением и БД.
+- Использовать образы site_latest и mariadb_latest из директории docker на Additional.iso.
+- Контейнер приложения: testapp / в задании может быть опечатка tespapp.
+- Контейнер БД: db.
+- База: testdb.
+- Пользователь БД: testc.
+- Пароль: P@ssw0rd.
+- Порт приложения наружу: 8080.
+
+----------------------
+6.1. BR-SRV: установка Docker
+----------------------
+
+    apt-get update && apt-get install docker-ce docker-compose -y
+    systemctl enable --now docker.socket docker.service
+    systemctl restart docker.socket docker.service
+
+Смонтировать Additional.iso:
+
+    mount /dev/sr0 /mnt
+
+Проверить:
+
+    lsblk
+    ls -la /mnt
+
+Скопировать docker-файлы:
+
+    cp -r /mnt/docker /root/docker
+    ls -la /root/docker
+
+Должны быть файлы вроде:
+
+    mariadb_latest.tar
+    postgresql_latest.tar
+    readme.txt
+    site_latest.tar
+
+Загрузить образы:
+
+    docker load -i /root/docker/site_latest.tar
+    docker load -i /root/docker/mariadb_latest.tar
+
+Проверить образы:
+
+    docker image ls
+
+Пример:
+
+    REPOSITORY   TAG       IMAGE ID       CREATED        SIZE
+    site         latest    015b4b821098   2 months ago   353MB
+    mariadb      10.11     bc52d24721da   4 months ago   327MB
+
+----------------------
+6.2. BR-SRV: docker-compose.yaml
+----------------------
+
+Создать каталог и файл:
+
+    mkdir testapp
+    nano testapp/docker-compose.yaml
+
+Содержимое:
+
+    services:
+      testapp:
+        image: site:latest
+        container_name: testapp
+        restart: always
+        depends_on:
+          - db
+        ports:
+          - "8080:8000"
+        environment:
+          DB_TYPE: maria
+          DB_HOST: db
+          DB_NAME: testdb
+          DB_PORT: 3306
+          DB_USER: testc
+          DB_PASS: P@ssw0rd
+
+      db:
+        image: mariadb:10.11
+        container_name: db
+        restart: always
+        environment:
+          MARIADB_NAME: testdb
+          MARIADB_USER: testc
+          MARIADB_PASS: P@ssw0rd
+          MARIADB_ROOT_PASSWORD: toor
+        volumes:
+          - /root/testapp/db_data:/var/lib/mysql
+
+Запустить:
+
+    cd testapp/
+    docker compose up -d
+    docker ps
+
+Нормально, если видишь контейнеры testapp и db.
+
+Если testapp перезапускается и сайт не открывается, выполни ручное создание БД.
+
+----------------------
+6.3. BR-SRV: ручное создание БД, если сайт не работает
+----------------------
+
+Зайти в контейнер БД:
+
+    docker exec -it db /bin/bash
+    mariadb -u root -p
+    toor
+
+Проверить базы:
+
+    SHOW DATABASES;
+
+Создать БД, пользователя и права:
+
+    CREATE DATABASE testdb;
+    CREATE USER 'testc'@'%' IDENTIFIED BY 'P@ssw0rd';
+    GRANT ALL PRIVILEGES ON testdb.* TO 'testc'@'%';
+    FLUSH PRIVILEGES;
+
+Проверка:
+
+    С HQ-CLI открыть в браузере:
+    http://192.168.3.10:8080
+
+Если страница открылась — задание выполнено.
+После изменений сайт может открыться не сразу, иногда нужно подождать около минуты.
+
+============================================================
+ЗАДАНИЕ 7. WEB-ПРИЛОЖЕНИЕ НА HQ-SRV: APACHE + MARIADB
+============================================================
+
+Что нужно сделать:
+- Использовать Apache.
+- Использовать MariaDB.
+- Файлы приложения и dump.sql лежат в web на Additional.iso.
+- Импортировать dump.sql в БД webdb.
+- Создать пользователя web с паролем P@ssw0rd.
+- Скопировать index.php и logo.png/images в каталог веб-сервера.
+- В index.php указать правильные данные БД.
+
+----------------------
+7.1. HQ-SRV: установка пакетов
+----------------------
+
+    apt-get update && apt-get install apache2 mariadb php8.2 apache2-mod_php8.2 php8.2-mysqli -y
+
+Запустить службы:
+
+    systemctl enable --now httpd2 mariadb
+    systemctl restart httpd2 mariadb
+
+Смонтировать Additional.iso:
+
+    mkdir /mnt/add_cd
+    mount /dev/sr0 /mnt/add_cd
+    ls -la /mnt/add_cd
+
+Скопировать web:
+
+    cp -r /mnt/add_cd/web /root/web
+    ls -la /root/web
+
+Должны быть примерно:
+
+    dump.sql
+    index.php
+    logo.png
+
+----------------------
+7.2. HQ-SRV: база данных
+----------------------
+
+Создать БД:
+
+    mysql -u root -e "CREATE DATABASE webdb;"
+
+Импортировать дамп:
+
+    mysql -u root webdb < /root/web/dump.sql
+
+Проверить таблицы:
+
+    mysql -u root -e "USE webdb; SHOW TABLES;"
+
+Должна быть таблица:
+
+    employees
+
+Создать пользователя web:
+
+    mysql -u root -e "CREATE USER 'web'@'localhost' IDENTIFIED BY 'P@ssw0rd';"
+
+Дать права:
+
+    mysql -u root -e "GRANT ALL PRIVILEGES ON webdb.* TO 'web'@'localhost';"
+
+Применить:
+
+    mysql -u root -e "FLUSH PRIVILEGES;"
+
+Проверить пользователей:
+
+    mysql -u root -e "SELECT user, host FROM mysql.user;"
+
+В выводе должен быть web localhost.
+
+----------------------
+7.3. HQ-SRV: файлы сайта
+----------------------
+
+Скопировать файлы:
+
+    cp /root/web/index.php /var/www/html/
+    cp /root/web/logo.png /var/www/html/
+
+Выставить владельца и права:
+
+    chown -R apache2:webmaster /var/www/html/
+    chmod 755 /var/www/html/
+
+Проверить:
+
+    ls -la /var/www/html/index.php
+    ls -la /var/www/html/logo.png
+
+Открыть index.php:
+
+    vim /var/www/html/index.php
+
+Проверить настройки подключения к БД:
+
+    $username = "web";
+    $password = "P@ssw0rd";
+    $dbname = "webdb";
+
+Переименовать стандартный index.html:
+
+    mv /var/www/html/index.html /var/www/html/index.html.default
+    ls -la /var/www/html/
+
+Перезапустить:
+
+    systemctl restart httpd2 mariadb
+
+Если перезапуск зависает — остановить через Ctrl+Z и перезагрузить HQ-SRV:
+
+    reboot
+
+Проверка:
+
+    С HQ-CLI открыть:
+    http://192.168.1.10
+
+Если сайт открывается, отображается логотип, русский текст и поля вроде DemoTest — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 8. СТАТИЧЕСКАЯ ТРАНСЛЯЦИЯ ПОРТОВ
+============================================================
+
+Что нужно сделать:
+- BR-RTR: пробросить 8080 на testapp BR-SRV.
+- HQ-RTR: пробросить 8080 на web-приложение HQ-SRV.
+- HQ-RTR: пробросить 2026 на SSH HQ-SRV.
+- BR-RTR: пробросить 2026 на SSH BR-SRV.
+
+----------------------
+8.1. BR-RTR
+----------------------
+
+Установить iptables:
+
+    apt-get update && apt-get install iptables -y
+
+Проброс 8080 на Docker-приложение BR-SRV:
+
+    iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 192.168.3.10:8080
+    iptables -A FORWARD -p tcp -d 192.168.3.10 --dport 8080 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+
+Проброс 2026 на SSH BR-SRV:
+
+    iptables -t nat -A PREROUTING -p tcp --dport 2026 -j DNAT --to-destination 192.168.3.10:2026
+    iptables -A FORWARD -p tcp -d 192.168.3.10 --dport 2026 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+
+Сохранить правила:
+
+    iptables-save > /etc/sysconfig/iptables
+    systemctl restart iptables
+    systemctl enable --now iptables
+
+Проверить NAT:
+
+    iptables -t nat -L -n -v
+
+----------------------
+8.2. HQ-RTR
+----------------------
+
+Установить iptables:
+
+    apt-get update && apt-get install iptables -y
+
+Проброс 8080 на Apache HQ-SRV порт 80:
+
+    iptables -t nat -A PREROUTING -p tcp --dport 8080 -j DNAT --to-destination 192.168.1.10:80
+    iptables -A FORWARD -p tcp -d 192.168.1.10 --dport 80 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+
+Проброс 2026 на SSH HQ-SRV:
+
+    iptables -t nat -A PREROUTING -p tcp --dport 2026 -j DNAT --to-destination 192.168.1.10:2026
+    iptables -A FORWARD -p tcp -d 192.168.1.10 --dport 2026 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+
+Сохранить:
+
+    iptables-save > /etc/sysconfig/iptables
+    systemctl restart iptables
+    systemctl enable --now iptables
+
+Проверить:
+
+    iptables -t nat -L -n -v
+
+Если DNAT-правила отображаются — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 9. NGINX REVERSE PROXY НА ISP
+============================================================
+
+Что нужно сделать:
+- При открытии web.au-team.irpo должен открываться сайт на HQ-SRV.
+- При открытии docker.au-team.irpo должен открываться testapp.
+
+----------------------
+9.1. ISP: установка nginx
+----------------------
+
+    apt-get update && apt-get install nginx nano -y
+
+Открыть конфиг:
+
+    nano /etc/nginx/sites-available.d/default.conf
+
+Содержимое:
+
+    server {
+        listen 80;
+        server_name web.au-team.irpo;
+
+        location / {
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_pass http://172.16.1.10:8080;
+        }
+    }
+
+    server {
+        listen 80;
+        server_name docker.au-team.irpo;
+
+        location / {
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_pass http://172.16.2.10:8080;
+        }
+    }
+
+Включить сайт и nginx:
+
+    ln -s /etc/nginx/sites-available.d/default.conf /etc/nginx/sites-enabled.d/
+    systemctl enable --now nginx
+    systemctl restart nginx
+    systemctl status nginx
+
+----------------------
+9.2. HQ-CLI: hosts
+----------------------
+
+Открыть hosts:
+
+    vim /etc/hosts
+
+Добавить:
+
+    172.16.1.1    web.au-team.irpo web
+    172.16.2.1    docker.au-team.irpo docker
+
+Проверка в браузере HQ-CLI:
+
+    http://web.au-team.irpo
+    http://docker.au-team.irpo
+
+Если оба сайта открылись — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 10. WEB-BASED АУТЕНТИФИКАЦИЯ НА ISP
+============================================================
+
+Что нужно сделать:
+- При открытии web.au-team.irpo должен появляться запрос логина и пароля.
+- Логин: WEB.
+- Пароль: P@ssw0rd.
+- Файл учётных записей: /etc/nginx/.htpasswd.
+- После успешной авторизации пользователь попадает на сайт.
+
+----------------------
+10.1. ISP: установка htpasswd
+----------------------
+
+    apt-get update && apt-get install apache2-htpasswd -y
+
+Создать файл паролей:
+
+    htpasswd -c /etc/nginx/.htpasswd WEB
+    P@ssw0rd
+
+Открыть nginx-конфиг:
+
+    nano /etc/nginx/sites-available.d/default.conf
+
+В блок web.au-team.irpo добавить строки:
+
+    auth_basic "Restricted";
+    auth_basic_user_file /etc/nginx/.htpasswd;
+
+Итоговый пример:
+
+    server {
+        listen 80;
+        server_name web.au-team.irpo;
+
+        location / {
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_pass http://172.16.1.10:8080;
+            auth_basic "Restricted";
+            auth_basic_user_file /etc/nginx/.htpasswd;
+        }
+    }
+
+    server {
+        listen 80;
+        server_name docker.au-team.irpo;
+
+        location / {
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $remote_addr;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_pass http://172.16.2.10:8080;
+        }
+    }
+
+Проверить и перезапустить nginx:
+
+    nginx -t
+    systemctl restart nginx
+    systemctl status nginx
+
+Проверка:
+
+    На HQ-CLI открыть:
+    http://web.au-team.irpo
+
+Если появляется окно авторизации, ввод WEB / P@ssw0rd проходит и сайт открывается — задание выполнено.
+
+============================================================
+ЗАДАНИЕ 11. УСТАНОВКА ЯНДЕКС БРАУЗЕРА НА HQ-CLI
+============================================================
+
+Что нужно сделать:
+- Установить Яндекс Браузер.
+- Отметить установку в отчёте.
+
+На HQ-CLI выполнить:
+
+    apt-get update && apt-get install yandex-browser -y
+
+Проверить запуск через меню или командой, если пакет добавил команду запуска.
+
+============================================================
+КОРОТКАЯ ПРОВЕРКА ВСЕГО МОДУЛЯ
+============================================================
+
+1. Samba DC:
+
+    ping br-srv.au-team.irpo
+    samba-tool group listmembers hq
+
+2. HQ-CLI в домене:
+
+    вход пользователем hquser1-hquser5
+
+3. Sudo-ограничения:
+
+    sudo id
+    sudo cat /root/.bashrc
+    sudo grep root /root/.bashrc
+
+Другие команды через sudo должны быть запрещены.
+
+4. RAID/NFS:
+
+    lsblk
+    df -h
+
+На HQ-CLI должно быть:
+
+    /mnt/nfs
+
+5. Chrony:
+
+    chronyc sources
+
+6. Ansible:
+
+    ansible -m ping all
+
+Все должны отвечать pong.
+
+7. Docker testapp:
+
+    docker ps
+    http://192.168.3.10:8080
+
+8. Apache/MariaDB:
+
+    http://192.168.1.10
+
+9. NAT:
+
+    iptables -t nat -L -n -v
+
+10. Nginx proxy:
+
+    http://web.au-team.irpo
+    http://docker.au-team.irpo
+
+11. Basic-auth:
+
+    http://web.au-team.irpo
+    Логин: WEB
+    Пароль: P@ssw0rd
+
+============================================================
+ПРИМЕЧАНИЯ ПО ВОЗМОЖНЫМ ОШИБКАМ
+============================================================
+
+1. Если сайт не открывается через имя:
+   - Проверь /etc/hosts на HQ-CLI.
+   - Проверь nginx на ISP.
+   - Проверь NAT на HQ-RTR и BR-RTR.
+
+2. Если Ansible не отвечает pong:
+   - Проверь SSH-порт 2026.
+   - Провь AllowUsers / AllowGroups в sshd_config.
+   - Проверь пароль пользователя.
+   - Проверь DNS-имена hq-srv.au-team.irpo и т.д.
+
+3. Если NFS не монтируется:
+   - Проверь /etc/exports на HQ-SRV.
+   - Выполни exportfs -arv.
+   - Проверь fstab на HQ-CLI.
+   - Проверь доступность 192.168.1.10.
+
+4. Если Docker-приложение перезапускается:
+   - Проверь docker logs testapp.
+   - Проверь, что БД testdb создана.
+   - Проверь пользователя testc и пароль P@ssw0rd.
+
+5. Если nginx не стартует:
+   - Выполни nginx -t.
+   - Проверь фигурные скобки в default.conf.
+   - Проверь, что нет второго такого же server_name.
+
+КОНЕЦ ФАЙЛА
