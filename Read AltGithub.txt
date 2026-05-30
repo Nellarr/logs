@@ -7,3 +7,18 @@ git clone https://github.com/USER/REPO.git
 Права: chmod +x "Имя Файла"
 
 Запуск: ./"Имя Файла"
+
+очистить логи:
+
+sudo journalctl --vacuum-time=1s
+sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \;
+sudo find /var/log -type f \( -name "*.gz" -o -name "*.old" -o -name "*.1" \) -delete
+
+очистить ситорию:
+
+history -c
+history -w
+> /root/.bash_history
+history -c && history -w && > /root/.bash_history
+
+https://github.com/juust1x/demo/blob/main/nginx.sh
