@@ -1,0 +1,347 @@
+НАСТРОЙКА DNS ПО ДЕМО НА ALT LINUX
+===================================
+
+ГДЕ ДЕЛАЕМ:
+DNS по заданию делается на HQ-SRV.
+DHCP по заданию делается на HQ-RTR.
+HQ-CLI должен получать DNS 192.168.10.2 через DHCP.
+
+ДАННЫЕ:
+Домен: au-team.irpo
+DNS-сервер: HQ-SRV = 192.168.10.2
+HQ-RTR = 192.168.10.1
+HQ-CLI = 192.168.20.2
+BR-RTR = 192.168.30.1
+BR-SRV = 192.168.30.2
+
+Прямые записи A:
+hq-rtr.au-team.irpo    -> 192.168.10.1
+hq-srv.au-team.irpo    -> 192.168.10.2
+hq-cli.au-team.irpo    -> 192.168.20.2
+br-rtr.au-team.irpo    -> 192.168.30.1
+br-srv.au-team.irpo    -> 192.168.30.2
+docker.au-team.irpo    -> 192.168.10.1
+web.au-team.irpo       -> 192.168.10.1
+
+Обратные записи PTR по заданию нужны минимум для:
+192.168.10.1 -> hq-rtr.au-team.irpo
+192.168.10.2 -> hq-srv.au-team.irpo
+192.168.20.2 -> hq-cli.au-team.irpo
+
+
+1. УСТАНОВКА BIND НА HQ-SRV
+===========================
+
+Выполнять на HQ-SRV под root:
+
+apt-get update
+apt-get install bind bind-utils -y
+
+
+2. ПРОВЕРЬ IP НА HQ-SRV
+=======================
+
+Проверь, что на HQ-SRV есть адрес 192.168.10.2:
+
+ip -br a
+
+Если DNS-сервер стоит сам на HQ-SRV, то в resolv.conf лучше указать 127.0.0.1.
+
+Если интерфейс обычный ens192:
+
+mkdir -p /etc/net/ifaces/ens192
+echo "nameserver 127.0.0.1" > /etc/net/ifaces/ens192/resolv.conf
+
+Если HQ-SRV у тебя настроен через VLAN ens192.100, тогда:
+
+mkdir -p /etc/net/ifaces/ens192.100
+echo "nameserver 127.0.0.1" > /etc/net/ifaces/ens192.100/resolv.conf
+
+
+3. НАСТРОЙКА /etc/bind/options.conf
+===================================
+
+Открываем файл:
+
+mcedit /etc/bind/options.conf
+
+Вставляем или приводим к такому виду:
+
+options {
+    directory "/var/lib/bind";
+
+    listen-on port 53 { 127.0.0.1; 192.168.10.2; };
+    listen-on-v6 { none; };
+
+    allow-query { any; };
+    allow-recursion { 127.0.0.1; 192.168.10.0/26; 192.168.20.0/28; 192.168.30.0/27; };
+
+    recursion yes;
+
+    forwarders {
+        8.8.8.8;
+        1.1.1.1;
+    };
+
+    dnssec-validation no;
+};
+
+
+4. НАСТРОЙКА /etc/bind/local.conf
+=================================
+
+Открываем файл:
+
+mcedit /etc/bind/local.conf
+
+Вставляем полностью:
+
+zone "au-team.irpo" {
+    type master;
+    file "/etc/bind/db.au-team.irpo";
+};
+
+zone "10.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.192.168.10";
+};
+
+zone "20.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.192.168.20";
+};
+
+
+5. ЕСЛИ local.conf НЕ ПОДКЛЮЧЕН
+===============================
+
+Проверь:
+
+grep local.conf /etc/bind/named.conf
+
+Если ничего не вывело, добавь:
+
+echo 'include "/etc/bind/local.conf";' >> /etc/bind/named.conf
+
+
+6. СОЗДАЁМ ПРЯМУЮ ЗОНУ au-team.irpo
+===================================
+
+Открываем файл:
+
+mcedit /etc/bind/db.au-team.irpo
+
+Вставляем полностью:
+
+$TTL 86400
+@       IN      SOA     hq-srv.au-team.irpo. admin.au-team.irpo. (
+                        2026053001
+                        3600
+                        1800
+                        604800
+                        86400 )
+
+@       IN      NS      hq-srv.au-team.irpo.
+
+hq-rtr  IN      A       192.168.10.1
+hq-srv  IN      A       192.168.10.2
+hq-cli  IN      A       192.168.20.2
+br-rtr  IN      A       192.168.30.1
+br-srv  IN      A       192.168.30.2
+docker  IN      A       192.168.10.1
+web     IN      A       192.168.10.1
+
+ВАЖНО:
+Если docker.au-team.irpo и web.au-team.irpo у тебя должны смотреть не на HQ-RTR, а на HQ-SRV,
+то поменяй в этих двух строках 192.168.10.1 на 192.168.10.2.
+
+
+7. СОЗДАЁМ ОБРАТНУЮ ЗОНУ ДЛЯ 192.168.10.0/26
+============================================
+
+Открываем файл:
+
+mcedit /etc/bind/db.192.168.10
+
+Вставляем полностью:
+
+$TTL 86400
+@       IN      SOA     hq-srv.au-team.irpo. admin.au-team.irpo. (
+                        2026053001
+                        3600
+                        1800
+                        604800
+                        86400 )
+
+@       IN      NS      hq-srv.au-team.irpo.
+
+1       IN      PTR     hq-rtr.au-team.irpo.
+2       IN      PTR     hq-srv.au-team.irpo.
+
+
+8. СОЗДАЁМ ОБРАТНУЮ ЗОНУ ДЛЯ 192.168.20.0/28
+============================================
+
+Открываем файл:
+
+mcedit /etc/bind/db.192.168.20
+
+Вставляем полностью:
+
+$TTL 86400
+@       IN      SOA     hq-srv.au-team.irpo. admin.au-team.irpo. (
+                        2026053001
+                        3600
+                        1800
+                        604800
+                        86400 )
+
+@       IN      NS      hq-srv.au-team.irpo.
+
+2       IN      PTR     hq-cli.au-team.irpo.
+
+
+9. ПРАВА НА ФАЙЛЫ
+=================
+
+Выполни:
+
+chmod 644 /etc/bind/db.au-team.irpo
+chmod 644 /etc/bind/db.192.168.10
+chmod 644 /etc/bind/db.192.168.20
+chmod 644 /etc/bind/local.conf
+chmod 644 /etc/bind/options.conf
+
+
+10. ПРОВЕРКА КОНФИГОВ
+=====================
+
+Проверяем общий конфиг:
+
+named-checkconf
+
+Если ошибок нет, команда ничего не выведет.
+
+Проверяем прямую зону:
+
+named-checkzone au-team.irpo /etc/bind/db.au-team.irpo
+
+Проверяем обратную зону 192.168.10.0:
+
+named-checkzone 10.168.192.in-addr.arpa /etc/bind/db.192.168.10
+
+Проверяем обратную зону 192.168.20.0:
+
+named-checkzone 20.168.192.in-addr.arpa /etc/bind/db.192.168.20
+
+
+11. ЗАПУСК DNS
+==============
+
+systemctl restart bind
+systemctl enable bind
+systemctl status bind --no-pager
+
+Если служба bind не найдена, попробуй:
+
+systemctl restart named
+systemctl enable named
+systemctl status named --no-pager
+
+
+12. ПРОВЕРКА НА HQ-SRV
+======================
+
+Проверка прямых записей:
+
+nslookup hq-rtr.au-team.irpo 127.0.0.1
+nslookup hq-srv.au-team.irpo 127.0.0.1
+nslookup hq-cli.au-team.irpo 127.0.0.1
+nslookup br-rtr.au-team.irpo 127.0.0.1
+nslookup br-srv.au-team.irpo 127.0.0.1
+nslookup docker.au-team.irpo 127.0.0.1
+nslookup web.au-team.irpo 127.0.0.1
+
+Проверка обратных записей:
+
+nslookup 192.168.10.1 127.0.0.1
+nslookup 192.168.10.2 127.0.0.1
+nslookup 192.168.20.2 127.0.0.1
+
+Проверка пересылки во внешний DNS:
+
+nslookup ya.ru 127.0.0.1
+
+
+13. ЧТО ДОЛЖНО БЫТЬ В DHCP НА HQ-RTR
+====================================
+
+В dhcpd.conf на HQ-RTR должно быть указано:
+
+option domain-name "au-team.irpo";
+option domain-name-servers 192.168.10.2;
+
+Пример сети VLAN200:
+
+subnet 192.168.20.0 netmask 255.255.255.240 {
+    range 192.168.20.2 192.168.20.14;
+    option routers 192.168.20.1;
+    option subnet-mask 255.255.255.240;
+    option broadcast-address 192.168.20.15;
+    option domain-name "au-team.irpo";
+    option domain-name-servers 192.168.10.2;
+}
+
+
+14. ПРОВЕРКА НА HQ-CLI
+======================
+
+После получения адреса по DHCP на HQ-CLI проверь:
+
+ip -br a
+ip r
+cat /etc/resolv.conf
+
+Должно быть:
+nameserver 192.168.10.2
+search au-team.irpo
+
+Проверка DNS:
+
+nslookup hq-srv.au-team.irpo
+nslookup hq-rtr.au-team.irpo
+nslookup 192.168.10.2
+ping hq-srv.au-team.irpo
+ping hq-rtr.au-team.irpo
+
+
+15. ЧАСТЫЕ ОШИБКИ
+=================
+
+1) named-checkzone ругается на точку:
+   В SOA, NS и PTR полные имена должны заканчиваться точкой:
+   hq-srv.au-team.irpo.
+
+2) DNS не отвечает с HQ-CLI:
+   Проверь, что HQ-CLI видит HQ-SRV:
+   ping 192.168.10.2
+
+3) DHCP выдал не тот DNS:
+   Проверь на HQ-RTR файл:
+   /etc/dhcp/dhcpd.conf
+   Там должен быть:
+   option domain-name-servers 192.168.10.2;
+
+4) После правки зоны DNS не обновился:
+   Увеличь serial в зоне, например:
+   2026053001 -> 2026053002
+   Потом:
+   systemctl restart bind
+
+5) Порт 53 закрыт firewall:
+   Можно временно проверить так:
+   iptables -L -n
+   Если нужно открыть:
+   iptables -A INPUT -p udp --dport 53 -j ACCEPT
+   iptables -A INPUT -p tcp --dport 53 -j ACCEPT
+   iptables-save > /etc/sysconfig/iptables
